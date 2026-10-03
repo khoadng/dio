@@ -232,6 +232,56 @@ void main() {
   });
 
   group(ConnectionManager, () {
+    test('advertises configured flow control windows', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final received = BytesBuilder();
+      final frames = Completer<List<_RawFrame>>();
+      server.listen((socket) {
+        socket.listen((data) {
+          received.add(data);
+          final parsed = _parseClientFrames(received.toBytes());
+          if (!frames.isCompleted &&
+              parsed.any((f) => f.type == 4) &&
+              parsed.any((f) => f.type == 8)) {
+            frames.complete(parsed);
+          }
+        });
+      });
+      final manager = ConnectionManager(
+        clientSettings: const ClientSettings(
+          streamWindowSize: 4 << 20,
+          connectionWindowSize: 16 << 20,
+        ),
+      );
+
+      try {
+        await manager.getConnection(
+          RequestOptions(path: 'http://127.0.0.1:${server.port}'),
+          [],
+        );
+        final parsed = await frames.future.timeout(const Duration(seconds: 5));
+        final settings = parsed.firstWhere((f) => f.type == 4).payload;
+        final windowUpdate = parsed.firstWhere((f) => f.type == 8);
+        final advertised = <int, int>{
+          for (var i = 0; i + 6 <= settings.length; i += 6)
+            ByteData.sublistView(
+              settings,
+              i,
+            ).getUint16(0): ByteData.sublistView(settings, i).getUint32(2),
+        };
+
+        expect(advertised[4], 4 << 20);
+        expect(windowUpdate.streamId, 0);
+        expect(
+          ByteData.sublistView(windowUpdate.payload).getUint32(0),
+          (16 << 20) - 65535,
+        );
+      } finally {
+        manager.close(force: true);
+        await server.close();
+      }
+    });
+
     test('returns correct connection', () async {
       final manager = ConnectionManager();
       final tlsConnection = await manager.getConnection(
@@ -700,4 +750,35 @@ class _TrackingAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) => _delegate.close(force: force);
+}
+
+class _RawFrame {
+  const _RawFrame(this.type, this.streamId, this.payload);
+
+  final int type;
+  final int streamId;
+  final Uint8List payload;
+}
+
+/// Parses the complete frames that follow the HTTP/2 client connection preface.
+List<_RawFrame> _parseClientFrames(Uint8List bytes) {
+  const prefaceLength = 24;
+  final frames = <_RawFrame>[];
+  var offset = prefaceLength;
+  while (offset + 9 <= bytes.length) {
+    final header = ByteData.sublistView(bytes, offset, offset + 9);
+    final length = (header.getUint16(0) << 8) | header.getUint8(2);
+    if (offset + 9 + length > bytes.length) {
+      break;
+    }
+    frames.add(
+      _RawFrame(
+        header.getUint8(3),
+        header.getUint32(5) & 0x7fffffff,
+        Uint8List.sublistView(bytes, offset + 9, offset + 9 + length),
+      ),
+    );
+    offset += 9 + length;
+  }
+  return frames;
 }

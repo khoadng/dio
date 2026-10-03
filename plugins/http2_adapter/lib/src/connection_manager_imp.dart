@@ -8,6 +8,7 @@ class _ConnectionManager implements ConnectionManager {
     this.onClientCreate,
     this.proxyConnectedPredicate = defaultProxyConnectedPredicate,
     List<String> supportedProtocols = const ['h2'],
+    this.clientSettings,
   })  : _idleTimeout = idleTimeout ?? const Duration(seconds: 1),
         _handshakeTimeout = handshakeTimeout ?? const Duration(seconds: 15),
         _supportedProtocols = supportedProtocols;
@@ -34,6 +35,9 @@ class _ConnectionManager implements ConnectionManager {
 
   /// The ALPN protocols advertised during the TLS handshake.
   final List<String> _supportedProtocols;
+
+  /// The settings applied to each HTTP/2 connection.
+  final ClientSettings? clientSettings;
 
   /// Saving the reusable connections
   final _transportsMap = <String, _ClientTransportConnectionState>{};
@@ -155,7 +159,10 @@ class _ConnectionManager implements ConnectionManager {
     }
 
     // Config a ClientTransportConnection and save it
-    final transport = ClientTransportConnection.viaSocket(socket);
+    final transport = ClientTransportConnection.viaSocket(
+      socket,
+      settings: clientSettings,
+    );
     final transportState = _ClientTransportConnectionState(transport);
     transport.onActiveStateChanged = (bool isActive) {
       transportState.isActive = isActive;

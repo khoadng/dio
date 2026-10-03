@@ -5,7 +5,8 @@ See the [Migration Guide][] for the complete breaking changes list.**
 
 ## Unreleased
 
-*None.*
+- Add `clientSettings` to `ConnectionManager` to configure HTTP/2 connections,
+  such as larger flow control windows for faster downloads.
 
 ## 2.9.0
 

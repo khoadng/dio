@@ -16,7 +16,7 @@ environment:
 
 dependencies:
   dio: ^5.2.0
-  http2: ^2.1.0
+  http2: ^3.2.0-wip
   meta: ^1.9.1
 
 dev_dependencies:
