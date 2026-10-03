@@ -28,6 +28,7 @@ class Http2Adapter implements HttpClientAdapter {
     ConnectionManager? connectionManager, {
     HttpClientAdapter? fallbackAdapter,
     this.onNotSupported,
+    this.autoUncompress = false,
   })  : connectionManager = connectionManager ?? ConnectionManager(),
         fallbackAdapter = fallbackAdapter ?? IOHttpClientAdapter();
 
@@ -48,6 +49,13 @@ class Http2Adapter implements HttpClientAdapter {
 
   /// Handles [DioH2NotSupportedException] and returns a [ResponseBody].
   H2NotSupportedCallback? onNotSupported;
+
+  /// Whether to request gzip responses and uncompress them, matching
+  /// [HttpClient.autoUncompress].
+  ///
+  /// Response headers are kept as received, so `content-encoding` and
+  /// `content-length` describe the compressed body.
+  bool autoUncompress;
 
   @override
   Future<ResponseBody> fetch(
@@ -130,6 +138,12 @@ class Http2Adapter implements HttpClientAdapter {
         },
       ).toList(),
     );
+    if (autoUncompress &&
+        !options.headers.keys.any(
+          (key) => key.toLowerCase() == HttpHeaders.acceptEncodingHeader,
+        )) {
+      headers.add(Header.ascii(HttpHeaders.acceptEncodingHeader, 'gzip'));
+    }
 
     // Creates a new outgoing stream.
     final stream = transport.makeRequest(headers);
@@ -317,8 +331,10 @@ class Http2Adapter implements HttpClientAdapter {
         redirects,
       );
     }
+    final isGzip = autoUncompress &&
+        responseHeaders.value(Headers.contentEncodingHeader) == 'gzip';
     return ResponseBody(
-      responseSink.stream,
+      isGzip ? _gunzip(responseSink.stream) : responseSink.stream,
       statusCode,
       headers: responseHeaders.map,
       redirects: redirects,
@@ -329,6 +345,12 @@ class Http2Adapter implements HttpClientAdapter {
         streamWR.target?.outgoingMessages.close();
       },
     )..extra[HttpClientAdapter.extraKeyHttpVersion] ??= '2.0';
+  }
+
+  static Stream<Uint8List> _gunzip(Stream<Uint8List> stream) {
+    return stream.cast<List<int>>().transform(gzip.decoder).map(
+          (bytes) => bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        );
   }
 
   bool _needRedirect(RequestOptions options, int status) {

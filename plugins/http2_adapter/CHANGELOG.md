@@ -7,6 +7,8 @@ See the [Migration Guide][] for the complete breaking changes list.**
 
 - Add `clientSettings` to `ConnectionManager` to configure HTTP/2 connections,
   such as larger flow control windows for faster downloads.
+- Add `autoUncompress` to `Http2Adapter` to request and uncompress gzip
+  responses.
 
 ## 2.9.0
 
